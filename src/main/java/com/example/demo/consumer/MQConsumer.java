@@ -27,7 +27,7 @@ public class MQConsumer {
     private static final Logger logger = LoggerFactory.getLogger(MQConsumer.class);
 
      /**
-     * 消费红包数据发到MQ
+     * 消费数据发到MQ
      *
      * @param messageSource
      * @param channel
@@ -36,11 +36,11 @@ public class MQConsumer {
      * @throws InterruptedException
      * @throws ListenerExecutionFailedException
      */
-     /*@RabbitListener(containerFactory = AmqpConfig.BANK_FACTORY_BEAN_NAME,
-             bindings = @QueueBinding(value = @Queue(value = "${mq.queueNameBank}", durable = "true",
+     @RabbitListener(containerFactory = AmqpConfig.BANK_FACTORY_BEAN_NAME,
+             bindings = @QueueBinding(value = @Queue(value = "${mq.consumer.bank.queueName}", durable = "true",
              exclusive = "false", autoDelete = "false"),
-                     exchange = @Exchange(value = "${mq.exchangeNameBank}", durable = "true",
-                     type = ExchangeTypes.DIRECT), key = "${mq.routeKeyBank}"), admin = "rabbitAdmin")*/
+                     exchange = @Exchange(value = "${mq.consumer.bank.exchangeName}", durable = "${mq.consumer.bank.durable}",
+                     type = ExchangeTypes.DIRECT), key = "${mq.consumer.bank.routeKey}"), admin = "rabbitAdmin")
      public void processBank(byte[] messageSource, Channel channel, @Header(AmqpHeaders.DELIVERY_TAG) long tag)
             throws IOException, InterruptedException, ListenerExecutionFailedException {
         try {

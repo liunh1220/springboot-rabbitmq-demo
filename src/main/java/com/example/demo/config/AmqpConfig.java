@@ -9,41 +9,30 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
+import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import java.util.Collections;
 
+
 @Configuration
 public class AmqpConfig {
 
     private static final Logger LOG = LoggerFactory.getLogger(AmqpConfig.class);
 
+    @Autowired
+    private Globals globals;
+
     public final static String RP_FACTORY_NAME = "rpMQContainerFactory";
     public final static String BANK_FACTORY_BEAN_NAME = "bankMQContainerFactory";
 
-    @Value("${mq.exchangeNameBank:amq.direct}")
-    private String exchangeNameBank;
-    @Value("${mq.exchangeNameTypeBank:direct}")
-    private String exchangeNameTypeBank;
-    @Value("${mq.queueNameBank:amq_direct_queue}")
-    private String queueNameBank;
-    @Value("${mq.routeKeyBank:route_direct}")
-    private String routeKeyBank;
-
-    @Value("${mq.exchangeNameNotify:amq.fanout}")
-    private String exchangeNameNotify;
-    @Value("${mq.exchangeNameTypeNotify:fanout}")
-    private String exchangeNameTypeNotify;
-    @Value("${mq.queueNameNotify:amq_fanout_queue}")
-    private String queueNameNotify;
-    @Value("${mq.routeKeyNotify:route_fanout}")
-    private String routeKeyNotify;
-
-    @Value("${spring.rabbitmq.host:127.0.0.1}")
+      @Value("${spring.rabbitmq.host:127.0.0.1}")
     private String notifyMqHost;
     @Value("${spring.rabbitmq.port:5672}")
     private Integer notifyMqPort;
@@ -55,6 +44,8 @@ public class AmqpConfig {
     private Integer notifyMqChannelCacheSize;
     @Value("${spring.rabbitmq.publisherConfirms:true}")
     private String notifyMqPublisherConfirms;
+
+    /** ******************************* ConnectionFactory ************************************************************  */
 
     @Bean(name = "factoryProvider")
     @Primary
@@ -79,8 +70,17 @@ public class AmqpConfig {
         return factoryConsumer;
     }
 
+    /** *******************************************************************************************  */
+
+    @Bean
+    public Jackson2JsonMessageConverter jackson2JsonMessageConverter() {
+        return new Jackson2JsonMessageConverter();
+    }
+
+   /** *******************************************************************************************  */
+
     /**
-     * 生产者
+     * rabbitTemplate
      *
      * @param rabbitAdmin
      * @return
@@ -97,15 +97,26 @@ public class AmqpConfig {
         return new RabbitAdmin(factoryProvider);
     }
 
+    /** ********************************** 消费者工厂 *********************************************************  */
 
-    /*消费者工厂 start*/
+    /*消费者工厂  */
     @Bean(RP_FACTORY_NAME)
     public SimpleRabbitListenerContainerFactory rpRabbitListenerContainerFactory(
-            //SimpleRabbitListenerContainerFactoryConfigurer configurer,
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
             @Qualifier("factoryProvider")ConnectionFactory factoryProvider) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(factoryProvider);
         factory.setMessageConverter(jackson2JsonMessageConverter());
+
+        //单次从队列获取数量
+        factory.setPrefetchCount(globals.getDefaultPrefetchNumber());
+        //#默认消费者线程数
+        factory.setConcurrentConsumers(globals.getMinConsumerNumber());
+        //最大消费者线程数
+        factory.setMaxConcurrentConsumers(globals.getMaxConsumerNumber());
+        //消息格式转换
+        factory.setMessageConverter(jackson2JsonMessageConverter());
+        configurer.configure(factory, factoryProvider);
         return factory;
     }
 
@@ -117,11 +128,39 @@ public class AmqpConfig {
         factory.setMessageConverter(jackson2JsonMessageConverter());
         return factory;
     }
-    /*消费者工厂 end*/
 
+    /** ******************************* Queue ************************************************************  */
+
+    @ConfigurationProperties(prefix = "mq.producer.bank")
     @Bean
-    public Jackson2JsonMessageConverter jackson2JsonMessageConverter() {
-        return new Jackson2JsonMessageConverter();
+    public QueueSetting bankProducerQueueSett() {
+        return new QueueSetting();
+    }
+
+    @ConfigurationProperties(prefix = "mq.consumer.bank")
+    @Bean
+    public QueueSetting bankConsumerQueueSett() {
+        return new QueueSetting();
+    }
+
+    @ConfigurationProperties(prefix = "mq.notify.bank")
+    @Bean
+    public QueueSetting bankNotifyQueueSett() {
+        return new QueueSetting();
+    }
+
+   /** ******************************* Exchange ************************************************************  */
+
+    /**
+     * 发送
+     * @param rabbitAdmin
+     * @return
+     */
+    @Bean
+    public Exchange bankProducerExchange(RabbitAdmin rabbitAdmin, @Qualifier("bankProducerQueueSett") QueueSetting bankProducerQueueSett){
+        Exchange exchange = new DirectExchange(bankProducerQueueSett().getExchangeName());
+        rabbitAdmin.declareExchange(exchange);
+        return exchange;
     }
 
     /**
@@ -130,8 +169,8 @@ public class AmqpConfig {
      * @return
      */
     @Bean
-    public Exchange bankExchange(RabbitAdmin rabbitAdmin){
-        Exchange exchange = new DirectExchange(exchangeNameBank);
+    public Exchange bankConsumerExchange(RabbitAdmin rabbitAdmin, @Qualifier("bankConsumerQueueSett") QueueSetting bankConsumerQueueSett){
+        Exchange exchange = new DirectExchange(bankConsumerQueueSett().getExchangeName());
         rabbitAdmin.declareExchange(exchange);
         return exchange;
     }
@@ -143,105 +182,13 @@ public class AmqpConfig {
      * @return
      */
     @Bean
-    public Exchange notifyExchange(RabbitAdmin rabbitAdmin){
-        Exchange exchange = new FanoutExchange(exchangeNameNotify);
+    public Exchange bankNotifyExchange(RabbitAdmin rabbitAdmin, @Qualifier("bankNotifyQueueSett") QueueSetting bankNotifyQueueSett){
+        Exchange exchange = new FanoutExchange(bankNotifyQueueSett().getExchangeName());
         rabbitAdmin.declareExchange(exchange);
         return exchange;
     }
 
-    /**
-     * 发送队列
-     * @param rabbitAdmin
-     * @param bankExchange
-     * @return
-     */
-    @Bean
-    public Queue bankQueue(RabbitAdmin rabbitAdmin,Exchange bankExchange){
-        Queue queue = new Queue(queueNameBank, true);
-        rabbitAdmin.declareQueue(queue);
-        Binding binding = new Binding(queue.getName(), Binding.DestinationType.QUEUE,
-                exchangeNameBank,queueNameBank, Collections.emptyMap());
-        rabbitAdmin.declareBinding(binding);
-        return queue;
-    }
-
-    /**
-     * 广播返回结果
-     *
-     */
-    @Bean
-    public Queue notifyQueue(RabbitAdmin rabbitAdmin,Exchange notifyExchange){
-        Queue queue = new Queue(queueNameNotify, true);
-        rabbitAdmin.declareQueue(queue);
-        Binding binding = new Binding(queue.getName(), Binding.DestinationType.QUEUE,
-                exchangeNameNotify,queueNameNotify, Collections.emptyMap());
-        rabbitAdmin.declareBinding(binding);
-        return queue;
-    }
-
-    public String getExchangeNameBank() {
-        return exchangeNameBank;
-    }
-
-    public void setExchangeNameBank(String exchangeNameBank) {
-        this.exchangeNameBank = exchangeNameBank;
-    }
-
-    public String getExchangeNameTypeBank() {
-        return exchangeNameTypeBank;
-    }
-
-    public void setExchangeNameTypeBank(String exchangeNameTypeBank) {
-        this.exchangeNameTypeBank = exchangeNameTypeBank;
-    }
-
-    public String getQueueNameBank() {
-        return queueNameBank;
-    }
-
-    public void setQueueNameBank(String queueNameBank) {
-        this.queueNameBank = queueNameBank;
-    }
-
-    public String getRouteKeyBank() {
-        return routeKeyBank;
-    }
-
-    public void setRouteKeyBank(String routeKeyBank) {
-        this.routeKeyBank = routeKeyBank;
-    }
-
-    public String getExchangeNameNotify() {
-        return exchangeNameNotify;
-    }
-
-    public void setExchangeNameNotify(String exchangeNameNotify) {
-        this.exchangeNameNotify = exchangeNameNotify;
-    }
-
-    public String getExchangeNameTypeNotify() {
-        return exchangeNameTypeNotify;
-    }
-
-    public void setExchangeNameTypeNotify(String exchangeNameTypeNotify) {
-        this.exchangeNameTypeNotify = exchangeNameTypeNotify;
-    }
-
-    public String getQueueNameNotify() {
-        return queueNameNotify;
-    }
-
-    public void setQueueNameNotify(String queueNameNotify) {
-        this.queueNameNotify = queueNameNotify;
-    }
-
-    public String getRouteKeyNotify() {
-        return routeKeyNotify;
-    }
-
-    public void setRouteKeyNotify(String routeKeyNotify) {
-        this.routeKeyNotify = routeKeyNotify;
-    }
+    /** *******************************************************************************************  */
 
     public String getNotifyMqHost() {
         return notifyMqHost;

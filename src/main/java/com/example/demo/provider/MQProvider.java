@@ -1,6 +1,7 @@
 package com.example.demo.provider;
 
 import com.example.demo.config.AmqpConfig;
+import com.example.demo.config.QueueSetting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.AmqpTemplate;
@@ -19,14 +20,15 @@ public class MQProvider {
 
     @Autowired
     private AmqpTemplate rabbitTemplate;
+
     @Autowired
-    private AmqpConfig amqpConfig;
+    private QueueSetting bankNotifyQueueSett;
 
     public void send(String msg) {
 
         LOGGER.info("MQ广播消息:", msg);
 
-        rabbitTemplate.convertAndSend("notifyExchange", amqpConfig.getRouteKeyNotify(), msg);
+        rabbitTemplate.convertAndSend(bankNotifyQueueSett.getExchangeName(), bankNotifyQueueSett.getRouteKey(), msg);
     }
 
 
